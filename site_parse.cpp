@@ -10,6 +10,10 @@ void read_file_data::open_file(string filename){
 	ifstream File;
 	File.open(filename.c_str());
 
+	if(!File){
+		cout << "The file was read in incorrectly, error" << endl;
+	}
+
 	string input;
 
 	while(File >> input){

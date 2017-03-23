@@ -12,7 +12,8 @@
 
 using namespace std;
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp);
-void curl(string filename);
+string curl(string filename);
+void parse( string, string);
 
 struct MemoryStruct {
   char *memory;
@@ -25,10 +26,18 @@ int main(){
 	config a;
 	a.parse_config("param.txt");
 	read_file_data words, sites;
-	words.open_file("test.txt");
-	sites.open_file("test.txt");
-	curl("http://www.nd.edu/");
-//	write_to_file(1,"test",sites);
+	words.open_file(a.info["SEARCH_FILE"]);
+	sites.open_file(a.info["SITE_FILE"]);
+	vector<string> site_data;
+	cout << sites.data.size() << endl;
+	for(int i = 0; i< sites.data.size(); i ++){
+		site_data.push_back(curl(sites.data[0]));
+	}
+	for( int i =0;i< site_data.size(); i++){
+		for(int j =0;j<words.data.size();j++){
+			parse(site_data[i],words.data[j]);
+		}
+	}
 }
 
 static size_t
@@ -51,7 +60,7 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
   return realsize;
 }
 
-void curl(string filename)
+string curl(string filename)
 {
   CURL *curl_handle;
   CURLcode res;
@@ -98,7 +107,8 @@ void curl(string filename)
     printf("%lu bytes retrieved\n", (long)chunk.size);
   }
 
-  printf("%s",chunk.memory);
+  printf("%s\n",chunk.memory);
+  string result = chunk.memory;
 
  
   /* cleanup curl stuff */ 
@@ -108,20 +118,17 @@ void curl(string filename)
  
   /* we're done with libcurl, so clean it up */ 
   curl_global_cleanup();
-}
 
-/*void write_to_file(int word_count, string url, vector<string> words){
-	ofsteam outfile;
-	outfile.open("1.csv", std::ios_base::app);
-	outfile << "Data";
-}*/
+  return result;
+}
 
 void parse(string data, string word){
 	size_t pos = 0;
 	int count = 0;
 
-	while(pos = data.find(word,pos) != std::string::npos){
+	while((pos = data.find(word,pos)) != string::npos){
 		count = count + 1;
 		pos = pos + word.length();
 	}
+	cout << count << endl;
 }

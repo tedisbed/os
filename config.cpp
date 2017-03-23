@@ -19,6 +19,11 @@ void config :: parse_config(string filename){
 	ifstream File;
 	File.open(filename.c_str());
 
+	if(!File){
+		cout << "The config file was not opened correctly" << endl;
+		return;
+	}
+
 	string data, parsed;
 
 	while(File >> data){
