@@ -31,7 +31,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 string curl(string filename);
 void * fetch(void *args);
 void * parse(void *args);
-void write_to_file(time_t now, data_queue data, int counter);
+void write_to_file(time_t now, data_queue &data, int counter);
 
 struct MemoryStruct {
 	char *memory;
@@ -79,6 +79,9 @@ int main(int argc, char *argv[]) {
 	int counter = 1;
 
 	while (1) {
+		if(!write_queue.is_empty()){
+			cout << "The data queue is not empty when the while loop runs" << endl;
+		}
 		status = fetch_queue.read_from_file(a.info["SITE_FILE"]);
 		if (status == -1) {
 			return status;
@@ -117,10 +120,15 @@ int main(int argc, char *argv[]) {
 void * fetch(void *ptr) {
 	// need condition variable here
 	cout << "in fetch function" << endl;
-	while (!fetch_queue.is_empty()) {
+	while (1) {
+		pthread_mutex_lock(&lock);
+		if(fetch_queue.is_empty()){
+			pthread_mutex_unlock(&lock);
+			break;	
+		}
 		cout << "in fetch while loop" << endl;
 
-		pthread_mutex_lock(&lock);
+		//pthread_mutex_lock(&lock);
 		string site_name = fetch_queue.get_front().first;
 		pthread_mutex_unlock(&lock);
 
@@ -138,6 +146,7 @@ void * fetch(void *ptr) {
 
 void * parse(void *ptr) {
 	cout << "in parse function" << endl;
+	for(int i =0;i<3;i++){
 	pthread_mutex_lock(&lock);
 	while(parse_queue.is_empty()){
 		cout << "Waiting for cond wait" << endl;
@@ -164,7 +173,6 @@ void * parse(void *ptr) {
 			size_t pos = data_string.find(*it, 0);
 			int count = 0;
 			while (pos != string::npos) {
-				cout << "Parse while loop" << endl;
 				count = count + 1;
 				pos = data_string.find(*it, pos + it->length());
 			}
@@ -180,10 +188,12 @@ void * parse(void *ptr) {
 			string num_string = conversion_stream.str();
 			string output_string = it2->first + "," + site_name + "," + num_string;
 			pair<string, string> output_pair = make_pair(output_string, "");
+
 			pthread_mutex_lock(&lock);
 			write_queue.insert(output_pair);
 			pthread_mutex_unlock(&lock);
 		}
+	}
 	}
 }
 
@@ -253,14 +263,14 @@ string curl(string filename) {
 	return result;
 }
 
-void write_to_file(time_t now, data_queue data, int counter) {
+void write_to_file(time_t now, data_queue &data, int counter) {
 	stringstream conversion_stream;
 	conversion_stream << counter;
 	string counter_string = conversion_stream.str();
 
 	string filename = counter_string + ".csv";
 	ofstream fd;
-	fd.open(filename.c_str(), ios_base::app);
+	fd.open(filename.c_str(), ios_base::out);
 
 	if (!fd) {
 		cout << "Error creating output file " << filename << endl;
@@ -279,6 +289,9 @@ void write_to_file(time_t now, data_queue data, int counter) {
 	while (!data.is_empty()) {
 		string data_string = data.get_front().first;
 		fd << buffer << "," << data_string << endl;
+	}
+	if(!data.is_empty()){
+		cout << "There is data here" << endl;
 	}
 
 	fd.close();
