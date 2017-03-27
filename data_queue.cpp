@@ -37,6 +37,10 @@ void data_queue::insert(pair<string, string> new_pair) {
 	data.push(new_pair);
 }
 
+int data_queue::size() {
+	return int(data.size());
+}
+
 bool data_queue::is_empty() {
 	return data.empty();
 }

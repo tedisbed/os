@@ -12,6 +12,7 @@ class data_queue {
 		int read_from_file(string);
 		pair<string, string> get_front();
 		void insert(pair<string, string>);
+		int size();
 		bool is_empty();
 
 	private:

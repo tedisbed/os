@@ -1,0 +1,10 @@
+Time,Phrase,Site,Count
+2017-03-27-18:35:40,Moved,http://google.com/,2
+2017-03-27-18:35:40,google,http://google.com/,1
+2017-03-27-18:35:40,notre,http://google.com/,0
+2017-03-27-18:35:40,Moved,http://www.cnn.com/,0
+2017-03-27-18:35:40,google,http://www.cnn.com/,8
+2017-03-27-18:35:40,notre,http://www.cnn.com/,0
+2017-03-27-18:35:40,Moved,http://www.nd.edu/,2
+2017-03-27-18:35:40,google,http://www.nd.edu/,0
+2017-03-27-18:35:40,notre,http://www.nd.edu/,0

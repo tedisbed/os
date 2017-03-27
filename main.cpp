@@ -42,7 +42,7 @@ struct MemoryStruct {
 // Global Variables
 
 pthread_mutex_t lock;
-pthread_cond_t condc;
+pthread_cond_t condp;
 data_queue fetch_queue, parse_queue, write_queue;
 set<string> words;
 
@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	pthread_mutex_init(&lock, NULL);
-	pthread_cond_init(&condc, NULL);
+	pthread_cond_init(&condp, NULL);
 
 	int num_fetch_threads = atoi(a.info["NUM_FETCH"].c_str());
 	int num_parse_threads = atoi(a.info["NUM_PARSE"].c_str());
@@ -79,12 +79,11 @@ int main(int argc, char *argv[]) {
 	int counter = 1;
 
 	while (1) {
-		if(!write_queue.is_empty()){
-			cout << "The data queue is not empty when the while loop runs" << endl;
-		}
 		status = fetch_queue.read_from_file(a.info["SITE_FILE"]);
 		if (status == -1) {
 			return status;
+		} else if (fetch_queue.size() < num_parse_threads) {
+			num_parse_threads = fetch_queue.size();
 		}
 
 		for (int i = 0; i < num_fetch_threads; i++) {
@@ -106,7 +105,7 @@ int main(int argc, char *argv[]) {
 		counter++;
 		cout << "Definetly a write error" << endl;
 		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
-		//signal(SIGALARM, handle_alarm); 
+		//signal(SIGALARM, handle_alarm);
 	}
 }
 
@@ -122,13 +121,12 @@ void * fetch(void *ptr) {
 	cout << "in fetch function" << endl;
 	while (1) {
 		pthread_mutex_lock(&lock);
-		if(fetch_queue.is_empty()){
+		if (fetch_queue.is_empty()) {
 			pthread_mutex_unlock(&lock);
-			break;	
+			break;
 		}
 		cout << "in fetch while loop" << endl;
 
-		//pthread_mutex_lock(&lock);
 		string site_name = fetch_queue.get_front().first;
 		pthread_mutex_unlock(&lock);
 
@@ -137,20 +135,18 @@ void * fetch(void *ptr) {
 
 		pthread_mutex_lock(&lock);
 		parse_queue.insert(data_pair);
-		pthread_cond_signal(&condc);
+		pthread_cond_signal(&condp);
 		pthread_mutex_unlock(&lock);
 	}
-	//pthread_cond_broadcast(&condc);
 	cout << "done with fetch" << endl;
 }
 
 void * parse(void *ptr) {
 	cout << "in parse function" << endl;
-	for(int i =0;i<3;i++){
-	pthread_mutex_lock(&lock);
-	while(parse_queue.is_empty()){
+
+	while (parse_queue.is_empty()) {
 		cout << "Waiting for cond wait" << endl;
-		pthread_cond_wait(&condc, &lock);
+		pthread_cond_wait(&condp, &lock);
 		pthread_mutex_unlock(&lock);
 	}
 	while (!parse_queue.is_empty()) {
@@ -165,18 +161,12 @@ void * parse(void *ptr) {
 
 		for (it = words.begin(); it != words.end(); it++) {
 			cout << "in parse for loop" << endl;
-			//pthread_mutex_lock(&lock);
-			cout << "In the mutex" << endl;
-			//string data_string = parse_queue.get_front();
-			//pthread_mutex_unlock(&lock);
-			cout << "After locks" << endl;
 			size_t pos = data_string.find(*it, 0);
 			int count = 0;
 			while (pos != string::npos) {
 				count = count + 1;
 				pos = data_string.find(*it, pos + it->length());
 			}
-			cout << "after while" << endl;
 			count_dict[*it] = count;
 		}
 
@@ -193,7 +183,6 @@ void * parse(void *ptr) {
 			write_queue.insert(output_pair);
 			pthread_mutex_unlock(&lock);
 		}
-	}
 	}
 }
 
