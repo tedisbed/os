@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <iostream>
+#include <cstdlib>
 
 using namespace std;
 
@@ -35,6 +36,13 @@ int config :: parse_config(string filename){
 				// make sure that the vaiable is accepted
 				if(a == "PERIOD_FETCH" || a == "NUM_FETCH" || a == "NUM_PARSE" || a == "SEARCH_FILE" || a == "SITE_FILE"){
 					string b = data.substr(i+1, data.length() - i);
+					if( a == "NUM_FETCH" || a == "NUM_PARSE"){
+						int z = atoi(b.c_str());
+						if(z > 8 || z < 1){
+							cout << "Im sorry, but you chose a wrong number of threads. It will be set to 1 thread now" << endl;
+							b = "1";
+						}
+					}
 					info[a] = b;
 				} else {
 					// error message if the variable is not accepted
