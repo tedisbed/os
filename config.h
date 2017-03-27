@@ -9,8 +9,8 @@ using namespace std;
 class config {
 	public:
 		config();
-		int parse_config(string);
-		map<string,string> info;
+		int parse_config(string); // parse config file
+		map<string,string> info;  // dictionary of all values
 
 };
 #endif
