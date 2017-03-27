@@ -43,6 +43,8 @@ struct MemoryStruct {
 
 pthread_mutex_t lock;
 pthread_cond_t condp;
+int parse_count = 0;
+int total_parse = 0;
 data_queue fetch_queue, parse_queue, write_queue;
 set<string> words;
 
@@ -82,9 +84,16 @@ int main(int argc, char *argv[]) {
 		status = fetch_queue.read_from_file(a.info["SITE_FILE"]);
 		if (status == -1) {
 			return status;
-		} else if (fetch_queue.size() < num_parse_threads) {
-			num_parse_threads = fetch_queue.size();
 		}
+		if (fetch_queue.size() < num_parse_threads) {
+			num_parse_threads = fetch_queue.size();
+			cout << "Warning: Reducing number of fetch threads to match number of sites" << endl;
+		}
+		if (fetch_queue.size() < num_fetch_threads) {
+			num_fetch_threads = fetch_queue.size();
+			cout << "Warning: Reducing number of parse threads to match number of sites" << endl;
+		}
+		total_parse = fetch_queue.size();
 
 		for (int i = 0; i < num_fetch_threads; i++) {
 			pthread_create(&fetch_threads[i], NULL, fetch, NULL);
@@ -103,6 +112,7 @@ int main(int argc, char *argv[]) {
 		time_t now = time(0);
 		write_to_file(now, write_queue, counter);
 		counter++;
+		parse_count = 0;
 		cout << "Definetly a write error" << endl;
 		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
 		//signal(SIGALARM, handle_alarm);
@@ -149,15 +159,20 @@ void * parse(void *ptr) {
 		pthread_cond_wait(&condp, &lock);
 		pthread_mutex_unlock(&lock);
 	}
-	while (!parse_queue.is_empty()) {
+	while (1) {
 		cout << "in parse while loop" << endl;
-		map<string, int> count_dict;
-		set<string>::iterator it;
 		pthread_mutex_lock(&lock);
+		if (parse_queue.is_empty()) {
+			pthread_mutex_unlock(&lock);
+			break;
+		}
 		pair<string, string> input_pair = parse_queue.get_front();
 		pthread_mutex_unlock(&lock);
+
 		string site_name = input_pair.first;
 		string data_string = input_pair.second;
+		map<string, int> count_dict;
+		set<string>::iterator it;
 
 		for (it = words.begin(); it != words.end(); it++) {
 			cout << "in parse for loop" << endl;
@@ -165,7 +180,7 @@ void * parse(void *ptr) {
 			int count = 0;
 			while (pos != string::npos) {
 				count = count + 1;
-				pos = data_string.find(*it, pos + it->length());
+				pos = data_string.find(*it, pos + 1);
 			}
 			count_dict[*it] = count;
 		}
@@ -181,8 +196,17 @@ void * parse(void *ptr) {
 
 			pthread_mutex_lock(&lock);
 			write_queue.insert(output_pair);
+			parse_count++;
 			pthread_mutex_unlock(&lock);
 		}
+
+		pthread_mutex_lock(&lock);
+		if (parse_count < total_parse && parse_queue.is_empty()) {
+			pthread_cond_wait(&condp, &lock);
+			pthread_mutex_unlock(&lock);
+			continue;
+		}
+		pthread_mutex_unlock(&lock);
 	}
 }
 
