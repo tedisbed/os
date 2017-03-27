@@ -9,6 +9,7 @@
 #include <ctime>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -120,13 +121,14 @@ void * fetch(void *ptr) {
 		cout << "in fetch while loop" << endl;
 
 		pthread_mutex_lock(&lock);
-		string site_name = fetch_queue.get_front();
+		string site_name = fetch_queue.get_front().first;
 		pthread_mutex_unlock(&lock);
 
 		string data = curl(site_name);
+		pair<string, string> data_pair = make_pair(site_name, data);
 
 		pthread_mutex_lock(&lock);
-		parse_queue.insert(data);
+		parse_queue.insert(data_pair);
 		pthread_cond_signal(&condc);
 		pthread_mutex_unlock(&lock);
 	}
@@ -147,8 +149,10 @@ void * parse(void *ptr) {
 		map<string, int> count_dict;
 		set<string>::iterator it;
 		pthread_mutex_lock(&lock);
-		string data_string = parse_queue.get_front();
+		pair<string, string> input_pair = parse_queue.get_front();
 		pthread_mutex_unlock(&lock);
+		string site_name = input_pair.first;
+		string data_string = input_pair.second;
 
 		for (it = words.begin(); it != words.end(); it++) {
 			cout << "in parse for loop" << endl;
@@ -174,16 +178,13 @@ void * parse(void *ptr) {
 			stringstream conversion_stream;
 			conversion_stream << num;
 			string num_string = conversion_stream.str();
+			string output_string = it2->first + "," + site_name + "," + num_string;
+			pair<string, string> output_pair = make_pair(output_string, "");
 			pthread_mutex_lock(&lock);
-			write_queue.insert(it2->first + ":" + num_string);
+			write_queue.insert(output_pair);
 			pthread_mutex_unlock(&lock);
 		}
 	}
-
-	//pthread_mutex_unlock(&lock);
-	cout << "in parse mutex" << endl;
-	cout << !parse_queue.is_empty() << endl;
-	//pthread_mutex_unlock(&lock);
 }
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -276,7 +277,7 @@ void write_to_file(time_t now, data_queue data, int counter) {
 	strftime(buffer, 20, "%F-%T", t_now);
 
 	while (!data.is_empty()) {
-		string data_string = data.get_front();
+		string data_string = data.get_front().first;
 		fd << buffer << "," << data_string << endl;
 	}
 

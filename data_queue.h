@@ -3,18 +3,19 @@
 
 #include <queue>
 #include <string>
+#include <utility>
 
 using namespace std;
 
 class data_queue {
 	public:
 		int read_from_file(string);
-		string get_front();
-		void insert(string);
+		pair<string, string> get_front();
+		void insert(pair<string, string>);
 		bool is_empty();
 
 	private:
-		queue<string> data;
+		queue<pair<string, string> > data;
 };
 
 #endif

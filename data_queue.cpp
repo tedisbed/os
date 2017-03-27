@@ -1,4 +1,5 @@
 #include <string>
+#include <utility>
 #include <vector>
 #include <fstream>
 #include <iostream>
@@ -18,21 +19,22 @@ int data_queue::read_from_file(string filename) {
 	string input;
 
 	while(File >> input) {
-		data.push(input);
+		pair<string, string> input_pair = make_pair(input, "");
+		data.push(input_pair);
 	}
 
 	File.close();
 	return 0;
 }
 
-string data_queue::get_front() {
-	string ret_data = data.front();
+pair<string, string> data_queue::get_front() {
+	pair<string, string> ret_data = data.front();
 	data.pop();
 	return ret_data;
 }
 
-void data_queue::insert(string new_string) {
-	data.push(new_string);
+void data_queue::insert(pair<string, string> new_pair) {
+	data.push(new_pair);
 }
 
 bool data_queue::is_empty() {
