@@ -33,8 +33,8 @@ void * parse(void *args);
 void write_to_file(time_t now, data_queue data, int counter);
 
 struct MemoryStruct {
-  char *memory;
-  size_t size;
+	char *memory;
+	size_t size;
 };
 
 
@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
 		time_t now = time(0);
 		write_to_file(now, write_queue, counter);
 		counter++;
+		cout << "Definetly a write error" << endl;
 		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
 		//signal(SIGALARM, handle_alarm); 
 	}
@@ -109,8 +110,8 @@ int main(int argc, char *argv[]) {
 // Function Definitions
 
 /*void handle_alarm(int x){
-	
-}*/
+
+  }*/
 
 void * fetch(void *ptr) {
 	// need condition variable here
@@ -126,35 +127,44 @@ void * fetch(void *ptr) {
 
 		pthread_mutex_lock(&lock);
 		parse_queue.insert(data);
+		pthread_cond_signal(&condc);
 		pthread_mutex_unlock(&lock);
 	}
-	pthread_cond_broadcast(&condc);
+	//pthread_cond_broadcast(&condc);
 	cout << "done with fetch" << endl;
 }
 
 void * parse(void *ptr) {
 	cout << "in parse function" << endl;
-	//pthread_mutex_lock(&lock);
-	pthread_cond_wait(&condc, &lock);
-
-	cout << "in parse mutex" << endl;
-	cout << !parse_queue.is_empty() << endl;
-
+	pthread_mutex_lock(&lock);
+	while(parse_queue.is_empty()){
+		cout << "Waiting for cond wait" << endl;
+		pthread_cond_wait(&condc, &lock);
+		pthread_mutex_unlock(&lock);
+	}
 	while (!parse_queue.is_empty()) {
 		cout << "in parse while loop" << endl;
 		map<string, int> count_dict;
 		set<string>::iterator it;
+		pthread_mutex_lock(&lock);
+		string data_string = parse_queue.get_front();
+		pthread_mutex_unlock(&lock);
+
 		for (it = words.begin(); it != words.end(); it++) {
 			cout << "in parse for loop" << endl;
-			pthread_mutex_lock(&lock);
-			string data_string = parse_queue.get_front();
-			pthread_mutex_unlock(&lock);
+			//pthread_mutex_lock(&lock);
+			cout << "In the mutex" << endl;
+			//string data_string = parse_queue.get_front();
+			//pthread_mutex_unlock(&lock);
+			cout << "After locks" << endl;
 			size_t pos = data_string.find(*it, 0);
 			int count = 0;
 			while (pos != string::npos) {
+				cout << "Parse while loop" << endl;
 				count = count + 1;
 				pos = data_string.find(*it, pos + it->length());
 			}
+			cout << "after while" << endl;
 			count_dict[*it] = count;
 		}
 
@@ -170,6 +180,9 @@ void * parse(void *ptr) {
 		}
 	}
 
+	//pthread_mutex_unlock(&lock);
+	cout << "in parse mutex" << endl;
+	cout << !parse_queue.is_empty() << endl;
 	//pthread_mutex_unlock(&lock);
 }
 
@@ -224,7 +237,7 @@ string curl(string filename) {
 	/* check for errors */
 	if(res != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n",
-			    curl_easy_strerror(res));
+				curl_easy_strerror(res));
 	}
 
 	string result = chunk.memory;
