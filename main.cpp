@@ -2,7 +2,7 @@
 // Teddy Brombach and Tristan Mitchell
 
 
-// Import Modules & Function/Struct Prototypes
+// Import Modules
 
 #include "config.h"
 #include "data_queue.h"
@@ -21,11 +21,14 @@
 
 using namespace std;
 
+
+// Function & Struct Prototypes
+
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp);
 string curl(string filename);
 void * fetch(void *args);
 void * parse(void *args);
-void write_to_file(time_t now, data_queue data, string filename);
+void write_to_file(time_t now, data_queue data, int counter);
 
 struct MemoryStruct {
   char *memory;
@@ -43,9 +46,14 @@ set<string> words;
 
 // Main Execution
 
-int main(){
+int main(int argc, char *argv[]) {
+	if (argc != 2) {
+		cout << "Error: Invalid command.\nCorrect usage: ./site-tester [config_file]" << endl;
+		return -1;
+	}
+
 	config a;
-	a.parse_config("param.txt");
+	a.parse_config(argv[1]);
 
 	pthread_mutex_init(&lock, NULL);
 	pthread_cond_init(&condc, NULL);
@@ -62,7 +70,7 @@ int main(){
 		words.insert(word);
 	}
 
-	int counter = 0;
+	int counter = 1;
 
 	while (1) {
 		fetch_queue.read_from_file(a.info["SITE_FILE"]);
@@ -81,12 +89,9 @@ int main(){
 			pthread_join(parse_threads[m], NULL);
 		}
 
-		counter++;
 		time_t now = time(0);
-		stringstream conversion_stream;
-		conversion_stream << counter;
-		string counter_string = conversion_stream.str();
-		write_to_file(now, write_queue, counter_string + ".csv");
+		write_to_file(now, write_queue, counter);
+		counter++;
 		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
 	}
 }
@@ -95,7 +100,9 @@ int main(){
 // Function Definitions
 
 void * fetch(void *ptr) {
+	cout << "in fetch function" << endl;
 	while (!fetch_queue.is_empty()) {
+		cout << "in fetch while loop" << endl;
 		pthread_mutex_lock(&lock);
 		string site_name = fetch_queue.get_front();
 		string data = curl(site_name);
@@ -103,13 +110,18 @@ void * fetch(void *ptr) {
 		pthread_mutex_unlock(&lock);
 	}
 	pthread_cond_broadcast(&condc);
+	cout << "done with fetch" << endl;
 }
 
 void * parse(void *ptr) {
+	cout << "in parse function" << endl;
 	pthread_mutex_lock(&lock);
 	pthread_cond_wait(&condc, &lock);
 
+	cout << "in parse mutex" << endl;
+
 	while (!parse_queue.is_empty()) {
+		cout << "in parse while loop" << endl;
 		map<string, int> count_dict;
 		set<string>::iterator it;
 		for (it = words.begin(); it != words.end(); it++) {
@@ -211,19 +223,24 @@ string curl(string filename) {
 	return result;
 }
 
-void write_to_file(time_t now, data_queue data, string filename) {
-    ofstream fd;
-    fd.open(filename.c_str(), ios_base::app);
+void write_to_file(time_t now, data_queue data, int counter) {
+	stringstream conversion_stream;
+	conversion_stream << counter;
+	string counter_string = conversion_stream.str();
 
-    if (!fd) {
-        cout << "Error creating output file " << filename << endl;
+	string filename = counter_string + ".csv";
+	ofstream fd;
+	fd.open(filename.c_str(), ios_base::app);
+
+	if (!fd) {
+		cout << "Error creating output file " << filename << endl;
 		return;
-    }
+	}
 
-    fd.seekp(0, ios_base::end);
-    if (fd.tellp() == 0) {
-        fd << "Time,Phrase,Site,Count" << endl;
-    }
+	fd.seekp(0, ios_base::end);
+	if (fd.tellp() == 0) {
+		fd << "Time,Phrase,Site,Count" << endl;
+	}
 
 	struct tm *t_now = localtime(&now);
 	char buffer[20];
@@ -231,8 +248,8 @@ void write_to_file(time_t now, data_queue data, string filename) {
 
 	while (!data.is_empty()) {
 		string data_string = data.get_front();
-	    fd << buffer << "," << data_string << endl;
+		fd << buffer << "," << data_string << endl;
 	}
 
-    fd.close();
+	fd.close();
 }

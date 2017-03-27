@@ -27,7 +27,7 @@ void config :: parse_config(string filename){
 	string data, parsed;
 
 	while(File >> data){
-		for(int i=0;i<data.length();i++){
+		for (size_t i = 0; i < data.length(); i++) {
 			if(data[i] == '='){
 				string a = data.substr(0,i);
 				if(a == "PERIOD_FETCH" || a == "NUM_FETCH" || a == "NUM_PARSE" || a == "SEARCH_FILE" || a == "SITE_FILE"){
