@@ -12,10 +12,12 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <signal.h>
 #include <sstream>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <curl/curl.h>
 
@@ -93,19 +95,30 @@ int main(int argc, char *argv[]) {
 		write_to_file(now, write_queue, counter);
 		counter++;
 		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
+		//signal(SIGALARM, handle_alarm); 
 	}
 }
 
 
 // Function Definitions
 
+/*void handle_alarm(int x){
+	
+}*/
+
 void * fetch(void *ptr) {
+	// need condition variable here
 	cout << "in fetch function" << endl;
 	while (!fetch_queue.is_empty()) {
 		cout << "in fetch while loop" << endl;
+
 		pthread_mutex_lock(&lock);
 		string site_name = fetch_queue.get_front();
+		pthread_mutex_unlock(&lock);
+
 		string data = curl(site_name);
+
+		pthread_mutex_lock(&lock);
 		parse_queue.insert(data);
 		pthread_mutex_unlock(&lock);
 	}
@@ -115,17 +128,21 @@ void * fetch(void *ptr) {
 
 void * parse(void *ptr) {
 	cout << "in parse function" << endl;
-	pthread_mutex_lock(&lock);
+	//pthread_mutex_lock(&lock);
 	pthread_cond_wait(&condc, &lock);
 
 	cout << "in parse mutex" << endl;
+	cout << !parse_queue.is_empty() << endl;
 
 	while (!parse_queue.is_empty()) {
 		cout << "in parse while loop" << endl;
 		map<string, int> count_dict;
 		set<string>::iterator it;
 		for (it = words.begin(); it != words.end(); it++) {
+			cout << "in parse for loop" << endl;
+			pthread_mutex_lock(&lock);
 			string data_string = parse_queue.get_front();
+			pthread_mutex_unlock(&lock);
 			size_t pos = data_string.find(*it, 0);
 			int count = 0;
 			while (pos != string::npos) {
@@ -141,11 +158,13 @@ void * parse(void *ptr) {
 			stringstream conversion_stream;
 			conversion_stream << num;
 			string num_string = conversion_stream.str();
+			pthread_mutex_lock(&lock);
 			write_queue.insert(it2->first + ":" + num_string);
+			pthread_mutex_unlock(&lock);
 		}
 	}
 
-	pthread_mutex_unlock(&lock);
+	//pthread_mutex_unlock(&lock);
 }
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
