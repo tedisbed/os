@@ -8,7 +8,7 @@ using namespace std;
 
 class data_queue {
 	public:
-		void read_from_file(string);
+		int read_from_file(string);
 		string get_front();
 		void insert(string);
 		bool is_empty();

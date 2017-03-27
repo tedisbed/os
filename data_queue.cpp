@@ -6,21 +6,23 @@
 
 using namespace std;
 
-void data_queue::read_from_file(string filename) {
+int data_queue::read_from_file(string filename) {
 	ifstream File;
 	File.open(filename.c_str());
 
 	if(!File){
-		cout << "Error. Invalid file name." << endl;
+		cout << "Error. Invalid sites file" << endl;
+		return -1;
 	}
 
 	string input;
 
-	while(File >> input){
-		cout << input << endl;
+	while(File >> input) {
 		data.push(input);
 	}
+
 	File.close();
+	return 0;
 }
 
 string data_queue::get_front() {

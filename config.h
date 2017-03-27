@@ -3,12 +3,13 @@
 
 #include <map>
 #include <string>
+
 using namespace std;
 
-class config{
+class config {
 	public:
 		config();
-		void parse_config(string);
+		int parse_config(string);
 		map<string,string> info;
 
 };

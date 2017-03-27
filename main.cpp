@@ -55,7 +55,10 @@ int main(int argc, char *argv[]) {
 	}
 
 	config a;
-	a.parse_config(argv[1]);
+	int status = a.parse_config(argv[1]);
+	if (status == -1) {
+		return status;
+	}
 
 	pthread_mutex_init(&lock, NULL);
 	pthread_cond_init(&condc, NULL);
@@ -75,7 +78,10 @@ int main(int argc, char *argv[]) {
 	int counter = 1;
 
 	while (1) {
-		fetch_queue.read_from_file(a.info["SITE_FILE"]);
+		status = fetch_queue.read_from_file(a.info["SITE_FILE"]);
+		if (status == -1) {
+			return status;
+		}
 
 		for (int i = 0; i < num_fetch_threads; i++) {
 			pthread_create(&fetch_threads[i], NULL, fetch, NULL);
@@ -219,15 +225,6 @@ string curl(string filename) {
 	if(res != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n",
 			    curl_easy_strerror(res));
-	} else {
-		/*
-		* Now, our chunk.memory points to a memory block that is chunk.size
-		* bytes big and contains the remote file.
-		*
-		* Do something nice with it!
-		*/
-
-		printf("%lu bytes retrieved\n", (long)chunk.size);
 	}
 
 	string result = chunk.memory;
