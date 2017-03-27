@@ -1,5 +1,14 @@
+// OS Project 4
+// Teddy Brombach and Tristan Mitchell
+
+
+// Import Modules & Function/Struct Prototypes
+
 #include "config.h"
-#include "site_parse.h"
+#include "data_queue.h"
+#include <ctime>
+#include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -11,124 +20,219 @@
 #include <curl/curl.h>
 
 using namespace std;
+
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp);
 string curl(string filename);
-void parse( string, string);
+void * fetch(void *args);
+void * parse(void *args);
+void write_to_file(time_t now, data_queue data, string filename);
 
 struct MemoryStruct {
   char *memory;
   size_t size;
 };
 
+
+// Global Variables
+
+pthread_mutex_t lock;
+pthread_cond_t condc;
+data_queue fetch_queue, parse_queue, write_queue;
+set<string> words;
+
+
+// Main Execution
+
 int main(){
-	// read in sites.txt
-	// can be used for search words file
 	config a;
 	a.parse_config("param.txt");
-	read_file_data words, sites;
-	words.open_file(a.info["SEARCH_FILE"]);
-	sites.open_file(a.info["SITE_FILE"]);
-	vector<string> site_data;
-	cout << sites.data.size() << endl;
-	for(int i = 0; i< sites.data.size(); i ++){
-		site_data.push_back(curl(sites.data[0]));
+
+	pthread_mutex_init(&lock, NULL);
+	pthread_cond_init(&condc, NULL);
+
+	int num_fetch_threads = atoi(a.info["NUM_FETCH"].c_str());
+	int num_parse_threads = atoi(a.info["NUM_PARSE"].c_str());
+	pthread_t fetch_threads[num_fetch_threads];
+	pthread_t parse_threads[num_parse_threads];
+
+	ifstream phrase_file;
+	phrase_file.open(a.info["SEARCH_FILE"].c_str());
+	string word;
+	while (phrase_file >> word) {
+		words.insert(word);
 	}
-	for( int i =0;i< site_data.size(); i++){
-		for(int j =0;j<words.data.size();j++){
-			parse(site_data[i],words.data[j]);
+
+	int counter = 0;
+
+	while (1) {
+		fetch_queue.read_from_file(a.info["SITE_FILE"]);
+
+		for (int i = 0; i < num_fetch_threads; i++) {
+			pthread_create(&fetch_threads[i], NULL, fetch, NULL);
+		}
+		for (int j = 0; j < num_parse_threads; j++) {
+			pthread_create(&parse_threads[j], NULL, parse, NULL);
+		}
+
+		for (int k = 0; k < num_fetch_threads; k++) {
+			pthread_join(fetch_threads[k], NULL);
+		}
+		for (int m = 0; m < num_parse_threads; m++) {
+			pthread_join(parse_threads[m], NULL);
+		}
+
+		counter++;
+		time_t now = time(0);
+		stringstream conversion_stream;
+		conversion_stream << counter;
+		string counter_string = conversion_stream.str();
+		write_to_file(now, write_queue, counter_string + ".csv");
+		usleep(1000000 * atoi(a.info["PERIOD_FETCH"].c_str()));
+	}
+}
+
+
+// Function Definitions
+
+void * fetch(void *ptr) {
+	while (!fetch_queue.is_empty()) {
+		pthread_mutex_lock(&lock);
+		string site_name = fetch_queue.get_front();
+		string data = curl(site_name);
+		parse_queue.insert(data);
+		pthread_mutex_unlock(&lock);
+	}
+	pthread_cond_broadcast(&condc);
+}
+
+void * parse(void *ptr) {
+	pthread_mutex_lock(&lock);
+	pthread_cond_wait(&condc, &lock);
+
+	while (!parse_queue.is_empty()) {
+		map<string, int> count_dict;
+		set<string>::iterator it;
+		for (it = words.begin(); it != words.end(); it++) {
+			string data_string = parse_queue.get_front();
+			size_t pos = data_string.find(*it, 0);
+			int count = 0;
+			while (pos != string::npos) {
+				count = count + 1;
+				pos = data_string.find(*it, pos + it->length());
+			}
+			count_dict[*it] = count;
+		}
+
+		map<string, int>::iterator it2;
+		for (it2 = count_dict.begin(); it2 != count_dict.end(); it2++) {
+			int num = it2->second;
+			stringstream conversion_stream;
+			conversion_stream << num;
+			string num_string = conversion_stream.str();
+			write_queue.insert(it2->first + ":" + num_string);
 		}
 	}
+
+	pthread_mutex_unlock(&lock);
 }
 
-static size_t
-WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-  size_t realsize = size * nmemb;
-  struct MemoryStruct *mem = (struct MemoryStruct *)userp;
- 
-  mem->memory = (char*) realloc(mem->memory, mem->size + realsize + 1);
-  if(mem->memory == NULL) {
-    /* out of memory! */ 
-    printf("not enough memory (realloc returned NULL)\n");
-    return 0;
-  }
- 
-  memcpy(&(mem->memory[mem->size]), contents, realsize);
-  mem->size += realsize;
-  mem->memory[mem->size] = 0;
- 
-  return realsize;
-}
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+	size_t realsize = size * nmemb;
+	struct MemoryStruct *mem = (struct MemoryStruct *)userp;
 
-string curl(string filename)
-{
-  CURL *curl_handle;
-  CURLcode res;
- 
-  struct MemoryStruct chunk;
- 
-  chunk.memory = (char*) malloc(1);  /* will be grown as needed by the realloc above */ 
-  chunk.size = 0;    /* no data at this point */ 
- 
-  curl_global_init(CURL_GLOBAL_ALL);
- 
-  /* init the curl session */ 
-  curl_handle = curl_easy_init();
- 
-  /* specify URL to get */ 
-  curl_easy_setopt(curl_handle, CURLOPT_URL, filename.c_str());
- 
-  /* send all data to this function  */ 
-  curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
- 
-  /* we pass our 'chunk' struct to the callback function */ 
-  curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
- 
-  /* some servers don't like requests that are made without a user-agent
-     field, so we provide one */ 
-  curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
- 
-  /* get it! */ 
-  res = curl_easy_perform(curl_handle);
- 
-  /* check for errors */ 
-  if(res != CURLE_OK) {
-    fprintf(stderr, "curl_easy_perform() failed: %s\n",
-            curl_easy_strerror(res));
-  }
-  else {
-    /*
-     * Now, our chunk.memory points to a memory block that is chunk.size
-     * bytes big and contains the remote file.
-     *
-     * Do something nice with it!
-     */ 
- 
-    printf("%lu bytes retrieved\n", (long)chunk.size);
-  }
-
-  printf("%s\n",chunk.memory);
-  string result = chunk.memory;
-
- 
-  /* cleanup curl stuff */ 
-  curl_easy_cleanup(curl_handle);
- 
-  free(chunk.memory);
- 
-  /* we're done with libcurl, so clean it up */ 
-  curl_global_cleanup();
-
-  return result;
-}
-
-void parse(string data, string word){
-	size_t pos = 0;
-	int count = 0;
-
-	while((pos = data.find(word,pos)) != string::npos){
-		count = count + 1;
-		pos = pos + word.length();
+	mem->memory = (char*) realloc(mem->memory, mem->size + realsize + 1);
+	if (mem->memory == NULL) {
+		/* out of memory! */
+		printf("not enough memory (realloc returned NULL)\n");
+		return 0;
 	}
-	cout << count << endl;
+
+	memcpy(&(mem->memory[mem->size]), contents, realsize);
+	mem->size += realsize;
+	mem->memory[mem->size] = 0;
+
+	return realsize;
+}
+
+string curl(string filename) {
+	CURL *curl_handle;
+	CURLcode res;
+
+	struct MemoryStruct chunk;
+
+	chunk.memory = (char*) malloc(1);  /* will be grown as needed by the realloc above */
+	chunk.size = 0;    /* no data at this point */
+
+	curl_global_init(CURL_GLOBAL_ALL);
+
+	/* init the curl session */
+	curl_handle = curl_easy_init();
+
+	/* specify URL to get */
+	curl_easy_setopt(curl_handle, CURLOPT_URL, filename.c_str());
+
+	/* send all data to this function  */
+	curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+
+	/* we pass our 'chunk' struct to the callback function */
+	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+
+	/* some servers don't like requests that are made without a user-agent
+	   field, so we provide one */
+	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+
+	/* get it! */
+	res = curl_easy_perform(curl_handle);
+
+	/* check for errors */
+	if(res != CURLE_OK) {
+		fprintf(stderr, "curl_easy_perform() failed: %s\n",
+			    curl_easy_strerror(res));
+	} else {
+		/*
+		* Now, our chunk.memory points to a memory block that is chunk.size
+		* bytes big and contains the remote file.
+		*
+		* Do something nice with it!
+		*/
+
+		printf("%lu bytes retrieved\n", (long)chunk.size);
+	}
+
+	string result = chunk.memory;
+
+	/* cleanup curl stuff */
+	curl_easy_cleanup(curl_handle);
+	free(chunk.memory);
+
+	/* we're done with libcurl, so clean it up */
+	curl_global_cleanup();
+
+	return result;
+}
+
+void write_to_file(time_t now, data_queue data, string filename) {
+    ofstream fd;
+    fd.open(filename.c_str(), ios_base::app);
+
+    if (!fd) {
+        cout << "Error creating output file " << filename << endl;
+		return;
+    }
+
+    fd.seekp(0, ios_base::end);
+    if (fd.tellp() == 0) {
+        fd << "Time,Phrase,Site,Count" << endl;
+    }
+
+	struct tm *t_now = localtime(&now);
+	char buffer[20];
+	strftime(buffer, 20, "%F-%T", t_now);
+
+	while (!data.is_empty()) {
+		string data_string = data.get_front();
+	    fd << buffer << "," << data_string << endl;
+	}
+
+    fd.close();
 }

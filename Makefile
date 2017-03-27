@@ -1,6 +1,6 @@
 CMP = g++
 CLASS = config
-CLASS2 = site_parse
+CLASS2 = data_queue
 MAIN = main
 EXEC = test
 
