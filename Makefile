@@ -1,4 +1,4 @@
-CMP = g++
+CMP = /afs/nd.edu/user14/csesoft/new/bin/g++
 CLASS = config
 CLASS2 = data_queue
 MAIN = main
