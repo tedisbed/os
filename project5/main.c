@@ -15,30 +15,60 @@ how to use the page table and disk interfaces.
 #include <string.h>
 #include <errno.h>
 
-void page_fault_handler( struct page_table *pt, int page )
+int frames_in_use = 0;
+const char *mode;
+char *physmem;
+struct disk *disk;
+
+void page_fault_handler(struct page_table *pt, int page)
 {
-	page_table_set_entry( pt, page,page,PROT_READ|PROT_WRITE);
-	printf("page fault on page #%d\n",page);
+	int frame, bits;
+
+	page_table_get_entry(pt, page, &frame, &bits);
+	if (bits == 1) {
+		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
+	} else if (frames_in_use < page_table_get_nframes(pt)) {
+		page_table_set_entry(pt, page, frames_in_use, PROT_READ);
+		disk_read(disk, page, &physmem[frames_in_use * PAGE_SIZE]);
+		frames_in_use++;
+	} else if (!strcmp(mode, "rand")) {
+		int rand_frame = rand() % page_table_get_nframes(pt);
+		int x;
+		for (x = 0; x < page_table_get_npages(pt); x++) {
+			page_table_get_entry(pt, x, &frame, &bits);
+			if (frame == rand_frame) {
+				if (bits == 3) {
+					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
+				}
+				disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
+				page_table_set_entry(pt, page, frame, PROT_READ);
+				page_table_set_entry(pt, x, 0, 0);
+				break;
+			}
+		}
+	}
+
+	printf("page fault on page #%d\n", page);
 	//exit(1);
 }
 
 int main( int argc, char *argv[] )
 {
 	if(argc!=5) {
-		printf("use: virtmem <npages> <nframes> <rand|fifo|lru|custom> <sort|scan|focus>\n");
+		printf("use: virtmem <npages> <nframes> <rand|fifo|custom> <sort|scan|focus>\n");
 		return 1;
 	}
 
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
+	mode = argv[3];
 	const char *program = argv[4];
 
-	struct disk *disk = disk_open("myvirtualdisk",npages);
+	disk = disk_open("myvirtualdisk",npages);
 	if(!disk) {
 		fprintf(stderr,"couldn't create virtual disk: %s\n",strerror(errno));
 		return 1;
 	}
-
 
 	struct page_table *pt = page_table_create( npages, nframes, page_fault_handler );
 	if(!pt) {
@@ -48,7 +78,7 @@ int main( int argc, char *argv[] )
 
 	char *virtmem = page_table_get_virtmem(pt);
 
-	char *physmem = page_table_get_physmem(pt);
+	physmem = page_table_get_physmem(pt);
 
 	if(!strcmp(program,"sort")) {
 		sort_program(virtmem,npages*PAGE_SIZE);
