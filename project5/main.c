@@ -23,8 +23,8 @@ struct disk *disk;
 void page_fault_handler(struct page_table *pt, int page)
 {
 	int frame, bits;
-
 	page_table_get_entry(pt, page, &frame, &bits);
+
 	if (bits == 1) {
 		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
 	} else if (frames_in_use < page_table_get_nframes(pt)) {
@@ -36,7 +36,7 @@ void page_fault_handler(struct page_table *pt, int page)
 		int x;
 		for (x = 0; x < page_table_get_npages(pt); x++) {
 			page_table_get_entry(pt, x, &frame, &bits);
-			if (frame == rand_frame) {
+			if (frame == rand_frame && bits != 0) {
 				if (bits == 3) {
 					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
 				}
@@ -46,6 +46,24 @@ void page_fault_handler(struct page_table *pt, int page)
 				break;
 			}
 		}
+	} else if (!strcmp(mode, "fifo")) {
+		int first_frame = frames_in_use % page_table_get_nframes(pt);
+		frames_in_use++;
+		int x;
+		for (x = 0; x < page_table_get_npages(pt); x++) {
+			page_table_get_entry(pt, x, &frame, &bits);
+			if (frame == first_frame && bits != 0) {
+				if (bits == 3) {
+					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
+				}
+				disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
+				page_table_set_entry(pt, page, frame, PROT_READ);
+				page_table_set_entry(pt, x, 0, 0);
+				break;
+			}
+		}
+	} else if (!strcmp(mode, "custom")) {
+		
 	}
 
 	printf("page fault on page #%d\n", page);
@@ -62,6 +80,10 @@ int main( int argc, char *argv[] )
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
 	mode = argv[3];
+	if(strcmp(mode, "rand") && strcmp(mode, "fifo") && strcmp(mode, "custom")) {
+		fprintf(stderr, "unknown algorithm mode: %s\n", argv[3]);
+		return 1;
+	}
 	const char *program = argv[4];
 
 	disk = disk_open("myvirtualdisk",npages);
@@ -90,7 +112,7 @@ int main( int argc, char *argv[] )
 		focus_program(virtmem,npages*PAGE_SIZE);
 
 	} else {
-		fprintf(stderr,"unknown program: %s\n",argv[3]);
+		fprintf(stderr,"unknown program: %s\n", argv[4]);
 		return 1;
 	}
 
