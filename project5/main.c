@@ -15,92 +15,79 @@ how to use the page table and disk interfaces.
 #include <string.h>
 #include <errno.h>
 
-int *custom_queue;
+int *fault_counters;
+int *frame_table;
 int nframes, npages;
-int frames_in_use = 0;
+int frames_in_use = 0, faults = 0, reads = 0, writes = 0;
 const char *mode;
 char *physmem;
 struct disk *disk;
 
 void page_fault_handler(struct page_table *pt, int page)
 {
-	int frame, bits, x;
+	int frame, bits, tmp_page;
 	page_table_get_entry(pt, page, &frame, &bits);
+	fault_counters[page]++;
 
 	if (bits == 1) {
 		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
-		int limit;
-		if (frames_in_use <= nframes) {
-			limit = frames_in_use;
-		} else {
-			limit = nframes;
-		}
-		int start_swapping = 0;
-		for (x = 0; x < limit - 1; x++) {
-			if (custom_queue[x] == frame) {
-				start_swapping = 1;
-			}
-			if (start_swapping == 1) {
-				custom_queue[x] = custom_queue[x+1];
-			}
-		}
-		custom_queue[limit-1] = frame;
+		faults--;
 	} else if (frames_in_use < nframes) {
 		page_table_set_entry(pt, page, frames_in_use, PROT_READ);
 		disk_read(disk, page, &physmem[frames_in_use * PAGE_SIZE]);
-		custom_queue[frames_in_use] = frame;
+		frame_table[frames_in_use] = page;
+		reads++;
 		frames_in_use++;
 	} else if (!strcmp(mode, "rand")) {
 		int rand_frame = rand() % nframes;
-		for (x = 0; x < npages; x++) {
-			page_table_get_entry(pt, x, &frame, &bits);
-			if (frame == rand_frame && bits != 0) {
-				if (bits == 3) {
-					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
-				}
-				disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
-				page_table_set_entry(pt, page, frame, PROT_READ);
-				page_table_set_entry(pt, x, 0, 0);
-				break;
-			}
+		tmp_page = frame_table[rand_frame];
+		page_table_get_entry(pt, tmp_page, &frame, &bits);
+		if (bits == 3) {
+			disk_write(disk, tmp_page, &physmem[frame * PAGE_SIZE]);
+			writes++;
 		}
+		disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
+		frame_table[frame] = page;
+		reads++;
+		page_table_set_entry(pt, page, frame, PROT_READ);
+		page_table_set_entry(pt, tmp_page, 0, 0);
 	} else if (!strcmp(mode, "fifo")) {
 		int first_frame = frames_in_use % nframes;
 		frames_in_use++;
-		for (x = 0; x < npages; x++) {
-			page_table_get_entry(pt, x, &frame, &bits);
-			if (frame == first_frame && bits != 0) {
-				if (bits == 3) {
-					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
-				}
-				disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
-				page_table_set_entry(pt, page, frame, PROT_READ);
-				page_table_set_entry(pt, x, 0, 0);
-				break;
-			}
+		tmp_page = frame_table[first_frame];
+		page_table_get_entry(pt, tmp_page, &frame, &bits);
+		if (bits == 3) {
+			disk_write(disk, tmp_page, &physmem[frame * PAGE_SIZE]);
+			writes++;
 		}
+		disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
+		frame_table[frame] = page;
+		reads++;
+		page_table_set_entry(pt, page, frame, PROT_READ);
+		page_table_set_entry(pt, tmp_page, 0, 0);
 	} else if (!strcmp(mode, "custom")) {
-		int top_frame = custom_queue[0];
-		for (x = 0; x < npages; x++) {
-			page_table_get_entry(pt, x, &frame, &bits);
-			if (frame == top_frame && bits != 0) {
-				if (bits == 3) {
-					disk_write(disk, x, &physmem[frame * PAGE_SIZE]);
-				}
-				disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
-				page_table_set_entry(pt, page, frame, PROT_READ);
-				page_table_set_entry(pt, x, 0, 0);
+		int tmp_page_2, x;
+		int min = 100000;
+		for (x = 0; x < nframes; x++) {
+			tmp_page_2 = frame_table[x];
+			if (fault_counters[tmp_page_2] <= min) {
+				tmp_page = tmp_page_2;
+				min = fault_counters[tmp_page_2];
 			}
 		}
-
-		for (x = 0; x < nframes - 1; x++) {
-			custom_queue[x] = custom_queue[x+1];
+		page_table_get_entry(pt, tmp_page, &frame, &bits);
+		if (bits == 3) {
+			disk_write(disk, tmp_page, &physmem[frame * PAGE_SIZE]);
+			writes++;
 		}
-		custom_queue[nframes - 1] = top_frame;
+		disk_read(disk, page, &physmem[frame * PAGE_SIZE]);
+		frame_table[frame] = page;
+		reads++;
+		page_table_set_entry(pt, page, frame, PROT_READ);
+		page_table_set_entry(pt, tmp_page, 0, 0);
 	}
 
-	printf("page fault on page #%d\n", page);
-	//exit(1);
+	faults++;
 }
 
 int main( int argc, char *argv[] )
@@ -119,7 +106,16 @@ int main( int argc, char *argv[] )
 	}
 	const char *program = argv[4];
 
-	custom_queue = malloc(nframes * sizeof(int));
+	int x;
+	frame_table = malloc(nframes * sizeof(int));
+	for (x = 0; x < nframes; x++) {
+		frame_table[x] = -1;
+	}
+
+	fault_counters = malloc(npages * sizeof(int));
+	for (x = 0; x < npages; x++) {
+		fault_counters[x] = 0;
+	}
 
 	disk = disk_open("myvirtualdisk",npages);
 	if(!disk) {
@@ -153,7 +149,9 @@ int main( int argc, char *argv[] )
 
 	page_table_delete(pt);
 	disk_close(disk);
-	free(custom_queue);
+	free(fault_counters);
+	free(frame_table);
 
+	printf("Page faults: %d\nDisk reads: %d\nDisk writes: %d\n", faults, reads, writes);
 	return 0;
 }
