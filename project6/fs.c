@@ -35,7 +35,24 @@ union fs_block {
 
 int fs_format()
 {
-	return 0;
+	union fs_block block;
+	disk_read(0, block.data);
+	block.super.magic = FS_MAGIC;
+	block.super.nblocks = disk_size();
+	block.super.ninodeblocks = block.super.nblocks / 10;
+	if (block.super.nblocks % 10 != 0) {
+		block.super.ninodeblocks++;
+	}
+	block.super.ninodes = block.super.ninodeblocks * INODES_PER_BLOCK;
+	disk_write(0, block.data);
+
+	int i;
+	char buffer[DISK_BLOCK_SIZE] = {"\0"};
+	for (i = 1; i < block.super.nblocks; i++) {
+		disk_write(i, buffer);
+	}
+
+	return 1;
 }
 
 void fs_debug()
@@ -45,9 +62,14 @@ void fs_debug()
 	disk_read(0,block.data);
 
 	printf("superblock:\n");
-	printf("    %d blocks\n",block.super.nblocks);
-	printf("    %d inode blocks\n",block.super.ninodeblocks);
-	printf("    %d inodes\n",block.super.ninodes);
+	if (block.super.magic == FS_MAGIC) {
+		printf("    magic number is valid\n");
+	} else {
+		printf("    magic number is invalid\n");
+	}
+	printf("    %d blocks on disk\n",block.super.nblocks);
+	printf("    %d blocks for inodes\n",block.super.ninodeblocks);
+	printf("    %d inodes total\n",block.super.ninodes);
 
 	int i, j;
 	for (i = 1; i < block.super.ninodeblocks + 1; i++) {
@@ -72,7 +94,8 @@ void fs_debug()
 				printf("\n");
 
 				if (indirect_needed == 1) {
-					printf("    indirect blocks:");
+					printf("    indirect block: %d\n", block2.inode[j].indirect);
+					printf("    indirect data blocks:");
 					disk_read(block2.inode[j].indirect, block3.data);
 					int m;
 					for (m = 0; m < POINTERS_PER_BLOCK; m++) {
