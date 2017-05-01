@@ -40,7 +40,7 @@ int fs_format()
 
 void fs_debug()
 {
-	union fs_block block;
+	union fs_block block, block2, block3;
 
 	disk_read(0,block.data);
 
@@ -48,6 +48,45 @@ void fs_debug()
 	printf("    %d blocks\n",block.super.nblocks);
 	printf("    %d inode blocks\n",block.super.ninodeblocks);
 	printf("    %d inodes\n",block.super.ninodes);
+
+	int i, j;
+	for (i = 1; i < block.super.ninodeblocks + 1; i++) {
+		disk_read(i, block2.data);
+		for (j = 0; j < INODES_PER_BLOCK; j++) {
+			if (block2.inode[j].isvalid) {
+				printf("inode %d:\n", (i - 1) * block.super.ninodeblocks + j);
+				printf("    size: %d bytes\n", block2.inode[j].size);
+				printf("    direct blocks:");
+
+				int k, limit;
+				int indirect_needed = 0;
+				if (block2.inode[j].size > POINTERS_PER_INODE * DISK_BLOCK_SIZE) {
+					limit = POINTERS_PER_INODE;
+					indirect_needed = 1;
+				} else {
+					limit = (block2.inode[j].size / DISK_BLOCK_SIZE) + 1;
+				}
+				for (k = 0; k < limit; k++) {
+					printf(" %d", block2.inode[j].direct[k]);
+				}
+				printf("\n");
+
+				if (indirect_needed == 1) {
+					printf("    indirect blocks:");
+					disk_read(block2.inode[j].indirect, block3.data);
+					int m;
+					for (m = 0; m < POINTERS_PER_BLOCK; m++) {
+						if (block3.pointers[m] == 0) {
+							break;
+						} else {
+							printf(" %d", block3.pointers[m]);
+						}
+					}
+					printf("\n");
+				}
+			}
+		}
+	}
 }
 
 int fs_mount()
