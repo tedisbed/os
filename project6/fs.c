@@ -33,8 +33,19 @@ union fs_block {
 	char data[DISK_BLOCK_SIZE];
 };
 
+struct fs_bitmap {
+	int *bits;
+	int in_use;
+};
+
+struct fs_bitmap bitmap = {.in_use = 0};
+
 int fs_format()
 {
+	if (bitmap.in_use == 1) {
+		return 0;
+	}
+
 	union fs_block block;
 	disk_read(0, block.data);
 	block.super.magic = FS_MAGIC;
@@ -114,7 +125,52 @@ void fs_debug()
 
 int fs_mount()
 {
-	return 0;
+	union fs_block block, block2, block3;
+	disk_read(0, block.data);
+	if (block.super.magic != FS_MAGIC || bitmap.in_use == 1) {
+		return 0;
+	}
+
+	bitmap.bits = malloc(disk_size() * sizeof(int));
+	bitmap.in_use = 1;
+	int i, j, k;
+	for (i = 0; i < 1 + block.super.ninodeblocks; i++) {
+		bitmap.bits[i] = 1;
+	}
+
+	for (i = 1; i < 1 + block.super.ninodeblocks; i++) {
+		disk_read(i, block2.data);
+		for (j = 0; j < INODES_PER_BLOCK; j++) {
+			if (block2.inode[j].isvalid) {
+				int indirect_needed = 0;
+				int limit;
+				if (block2.inode[j].size > POINTERS_PER_INODE * DISK_BLOCK_SIZE) {
+					limit = POINTERS_PER_INODE;
+					indirect_needed = 1;
+				} else {
+					limit = (block2.inode[j].size / DISK_BLOCK_SIZE) + 1;
+				}
+				for (k = 0; k < limit; k++) {
+					bitmap.bits[block2.inode[j].direct[k]] = 1;
+				}
+
+				if (indirect_needed == 1) {
+					bitmap.bits[block2.inode[j].indirect] = 1;
+					disk_read(block2.inode[j].indirect, block3.data);
+					int m;
+					for (m = 0; m < POINTERS_PER_BLOCK; m++) {
+						if (block3.pointers[m] == 0) {
+							break;
+						} else {
+							bitmap.bits[block3.pointers[m]] = 1;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return 1;
 }
 
 int fs_create()
