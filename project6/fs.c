@@ -38,11 +38,12 @@ struct fs_bitmap {
 	int in_use;
 };
 
-struct fs_bitmap bitmap = {.in_use = 0};
+struct fs_bitmap inode_bitmap = {.in_use = 0};
+struct fs_bitmap block_bitmap = {.in_use = 0};
 
 int fs_format()
 {
-	if (bitmap.in_use == 1) {
+	if (block_bitmap.in_use) {
 		return 0;
 	}
 
@@ -87,7 +88,7 @@ void fs_debug()
 		disk_read(i, block2.data);
 		for (j = 0; j < INODES_PER_BLOCK; j++) {
 			if (block2.inode[j].isvalid) {
-				printf("inode %d:\n", (i - 1) * block.super.ninodeblocks + j);
+				printf("inode %d:\n", (i - 1) * INODES_PER_BLOCK + j);
 				printf("    size: %d bytes\n", block2.inode[j].size);
 				printf("    direct blocks:");
 
@@ -104,7 +105,7 @@ void fs_debug()
 				}
 				printf("\n");
 
-				if (indirect_needed == 1) {
+				if (indirect_needed) {
 					printf("    indirect block: %d\n", block2.inode[j].indirect);
 					printf("    indirect data blocks:");
 					disk_read(block2.inode[j].indirect, block3.data);
@@ -127,15 +128,24 @@ int fs_mount()
 {
 	union fs_block block, block2, block3;
 	disk_read(0, block.data);
-	if (block.super.magic != FS_MAGIC || bitmap.in_use == 1) {
+	if (block.super.magic != FS_MAGIC || block_bitmap.in_use) {
 		return 0;
 	}
 
-	bitmap.bits = malloc(disk_size() * sizeof(int));
-	bitmap.in_use = 1;
+	inode_bitmap.bits = calloc(block.super.ninodeblocks * INODES_PER_BLOCK, sizeof(int));
+	block_bitmap.bits = calloc(disk_size(), sizeof(int)); // NEED TO FREE THESE
+	block_bitmap.in_use = 1;
 	int i, j, k;
 	for (i = 0; i < 1 + block.super.ninodeblocks; i++) {
-		bitmap.bits[i] = 1;
+		block_bitmap.bits[i] = 1;
+		if (i != 0) {
+			disk_read(i, block2.data);
+			for (j = 0; j < INODES_PER_BLOCK; j++) {
+				if (block2.inode[j].isvalid) {
+					inode_bitmap.bits[(i - 1) * INODES_PER_BLOCK + j] = 1;
+				}
+			}
+		}
 	}
 
 	for (i = 1; i < 1 + block.super.ninodeblocks; i++) {
@@ -151,18 +161,18 @@ int fs_mount()
 					limit = (block2.inode[j].size / DISK_BLOCK_SIZE) + 1;
 				}
 				for (k = 0; k < limit; k++) {
-					bitmap.bits[block2.inode[j].direct[k]] = 1;
+					block_bitmap.bits[block2.inode[j].direct[k]] = 1;
 				}
 
-				if (indirect_needed == 1) {
-					bitmap.bits[block2.inode[j].indirect] = 1;
+				if (indirect_needed) {
+					block_bitmap.bits[block2.inode[j].indirect] = 1;
 					disk_read(block2.inode[j].indirect, block3.data);
 					int m;
 					for (m = 0; m < POINTERS_PER_BLOCK; m++) {
 						if (block3.pointers[m] == 0) {
 							break;
 						} else {
-							bitmap.bits[block3.pointers[m]] = 1;
+							block_bitmap.bits[block3.pointers[m]] = 1;
 						}
 					}
 				}
@@ -175,12 +185,96 @@ int fs_mount()
 
 int fs_create()
 {
-	return 0;
+	if (!block_bitmap.in_use) {
+		return 0;
+	}
+
+	union fs_block block, block2;
+	disk_read(0, block.data);
+
+	int i, j;
+	int inumber = 0;
+	for (i = 1; i < disk_size(); i++) {
+		if (block_bitmap.bits[i] == 0) {
+			for (j = 1; j < block.super.ninodeblocks * INODES_PER_BLOCK; j++) {
+				if (inode_bitmap.bits[j] == 0) {
+					inode_bitmap.bits[j] = 1;
+					inumber = j;
+					break;
+				}
+			}
+			if (inumber != 0) {
+				block_bitmap.bits[i] = 1;
+				int inode_index = inumber / INODES_PER_BLOCK + 1;
+				disk_read(inode_index, block2.data);
+				block2.inode[inumber % INODES_PER_BLOCK].isvalid = 1;
+				block2.inode[inumber % INODES_PER_BLOCK].size = 0;
+				block2.inode[inumber % INODES_PER_BLOCK].direct[0] = i;
+				int x;
+				for (x = 1; x < POINTERS_PER_INODE; x++) {
+					block2.inode[inumber % INODES_PER_BLOCK].direct[x] = 0;
+				}
+				block2.inode[inumber % INODES_PER_BLOCK].indirect = 0;
+				disk_write(inode_index, block2.data);
+				break;
+			}
+		}
+	}
+
+	return inumber;
 }
 
 int fs_delete( int inumber )
 {
-	return 0;
+	if (!block_bitmap.in_use) {
+		return 0;
+	}
+
+	union fs_block block, block2;
+	disk_read(0, block.data);
+	if (inumber <= 0 || inumber > block.super.ninodes) {
+		return 0;
+	}
+	inode_bitmap.bits[inumber] = 0;
+
+	char empty_buffer[DISK_BLOCK_SIZE] = {"\0"};
+	int inode_block = inumber / INODES_PER_BLOCK + 1;
+	int inode_index = inumber % INODES_PER_BLOCK;
+
+	disk_read(inode_block, block.data);
+	if (block.inode[inode_index].isvalid == 0) {
+		return 0;
+	}
+	block.inode[inode_index].isvalid = 0;
+	block.inode[inode_index].size = 0;
+	int x;
+	for (x = 0; x < POINTERS_PER_INODE; x++) {
+		if (block.inode[inode_index].direct[x] != 0) {
+			disk_write(block.inode[inode_index].direct[x], empty_buffer);
+			block.inode[inode_index].direct[x] = 0;
+			block_bitmap.bits[block.inode[inode_index].direct[x]] = 0;
+		} else {
+			break;
+		}
+	}
+
+	if (block.inode[inode_index].indirect != 0) {
+		block_bitmap.bits[block.inode[inode_index].indirect] = 0;
+		int y;
+		for (y = 0; y < POINTERS_PER_BLOCK; y++) {
+			disk_read(block.inode[inode_index].indirect, block2.data);
+			if (block2.pointers[y] != 0) {
+				block_bitmap.bits[block2.pointers[y]] = 0;
+			} else {
+				break;
+			}
+		}
+		disk_write(block.inode[inode_index].indirect, empty_buffer);
+	}
+	block.inode[inode_index].indirect = 0;
+	disk_write(inode_block, block.data);
+
+	return 1;
 }
 
 int fs_getsize( int inumber )
