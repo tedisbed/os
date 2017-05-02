@@ -251,8 +251,8 @@ int fs_delete( int inumber )
 	for (x = 0; x < POINTERS_PER_INODE; x++) {
 		if (block.inode[inode_index].direct[x] != 0) {
 			disk_write(block.inode[inode_index].direct[x], empty_buffer);
-			block.inode[inode_index].direct[x] = 0;
 			block_bitmap.bits[block.inode[inode_index].direct[x]] = 0;
+			block.inode[inode_index].direct[x] = 0;
 		} else {
 			break;
 		}
