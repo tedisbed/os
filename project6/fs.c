@@ -279,15 +279,171 @@ int fs_delete( int inumber )
 
 int fs_getsize( int inumber )
 {
+	union fs_block block, block1;
+
+	disk_read(0,block1.data);
+
+	int inode_block = inumber / INODES_PER_BLOCK + 1;
+	int inode_index = inumber % INODES_PER_BLOCK;
+
+
+
+	if(inumber <= 0 || inumber > block1.super.ninodes){
+		return -1;
+	}
+
+	disk_read(inode_block,block.data);
+	if(block.inode[inode_index].isvalid){
+		return block.inode[inode_index].size;
+	}
 	return -1;
 }
 
 int fs_read( int inumber, char *data, int length, int offset )
 {
+	union fs_block block, block1, block2, block3;
+	disk_read(0,block.data);
+
+	if(inumber <=0 || inumber > block.super.ninodes || inumber == 0){
+		return 0;
+	}
+	
+	int inode_block = inumber / INODES_PER_BLOCK +1;
+	int inode_index = inumber % INODES_PER_BLOCK;
+	
+	disk_read(inode_block,block1.data);
+	int total_size = block1.inode[inode_index].size;
+	if(block1.inode[inode_index].isvalid){
+		int i,j, total = 0;
+		for (i=0;i<POINTERS_PER_INODE;i++){
+			if(block1.inode[inode_index].direct[i] == 0){
+				break;
+			}
+			if(offset >= DISK_BLOCK_SIZE){
+				total_size -= DISK_BLOCK_SIZE;
+				offset -= DISK_BLOCK_SIZE;
+				continue;
+			}
+
+			disk_read(block1.inode[inode_index].direct[i], block2.data);
+
+			for(j=offset;j<total_size && j < DISK_BLOCK_SIZE;j++){
+				if(total < length){
+					data[total] = block2.data[j];
+					total++;	
+				}else{
+					i = POINTERS_PER_INODE;
+					break;
+				}
+			}
+			total_size -= DISK_BLOCK_SIZE;
+		}
+		if(total < length && total < total_size){
+			disk_read(block1.inode[inode_index].indirect,block3.data);
+			for (i=0;i<POINTERS_PER_BLOCK;i++){
+				if(block3.pointers[i] == 0){
+					break;
+				}
+				if(offset >= DISK_BLOCK_SIZE){
+					total_size -= DISK_BLOCK_SIZE;
+					offset -= DISK_BLOCK_SIZE;
+					continue;
+				}
+
+				disk_read(block3.pointers[i], block2.data);
+
+				for(j=offset;j<total_size && j < DISK_BLOCK_SIZE;j++){
+					if(total < length){
+						data[total] = block2.data[j];
+						total++;	
+					}else{
+						i = POINTERS_PER_INODE;
+						break;
+					}
+				}
+				total_size -= DISK_BLOCK_SIZE;
+			}
+		}
+		return total;
+	}else{
+		return 0;
+	}
 	return 0;
 }
 
 int fs_write( int inumber, const char *data, int length, int offset )
 {
+	union fs_block block, block1, block2, block3;
+	disk_read(0,block.data);
+
+	if(inumber <=0 || inumber > block.super.ninodes || inumber == 0){
+		return 0;
+	}
+	
+	int inode_block = inumber / INODES_PER_BLOCK +1;
+	int inode_index = inumber % INODES_PER_BLOCK;
+	
+	disk_read(inode_block,block1.data);
+	int total_size = block1.inode[inode_index].size;
+	if(block1.inode[inode_index].isvalid){
+		int i,j, total = 0;
+		for (i=0;i<POINTERS_PER_INODE;i++){
+			if(block1.inode[inode_index].direct[i] == 0){
+				// allocate the next avalible block
+				// look through the bitmap and find one -- in create
+				break;
+			}
+			if(offset >= DISK_BLOCK_SIZE){
+				total_size -= DISK_BLOCK_SIZE;
+				offset -= DISK_BLOCK_SIZE;
+				continue;
+			}
+
+			disk_read(block1.inode[inode_index].direct[i], block2.data);
+			// total size switched with length
+			for(j=offset;j<length && j < DISK_BLOCK_SIZE;j++){
+				printf("IN THE FOR LOOP\n");
+				if(total < length){
+					printf("ARE WE HERE\n");
+					block2.data[j] = data[total];
+					total++;	
+				}else{
+					i = POINTERS_PER_INODE;
+					break;
+				}
+			}
+			total_size -= DISK_BLOCK_SIZE;
+		}
+		if(total < length && total < total_size){
+			disk_read(block1.inode[inode_index].indirect,block3.data);
+			for (i=0;i<POINTERS_PER_BLOCK;i++){
+				if(block3.pointers[i] == 0){
+					break;
+				}
+				if(offset >= DISK_BLOCK_SIZE){
+					total_size -= DISK_BLOCK_SIZE;
+					offset -= DISK_BLOCK_SIZE;
+					continue;
+				}
+
+				disk_read(block3.pointers[i], block2.data);
+
+				for(j=offset;j<total_size && j < DISK_BLOCK_SIZE;j++){
+					if(total < length){
+						block2.data[j] = data[total];
+						total++;	
+					}else{
+						i = POINTERS_PER_INODE;
+						break;
+					}
+				}
+				total_size -= DISK_BLOCK_SIZE;
+			}
+		}
+		block1.inode[inode_index].size = total;
+		return total;
+	}else{
+		return 0;
+	}
 	return 0;
 }
